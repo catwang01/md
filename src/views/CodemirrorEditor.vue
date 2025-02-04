@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import type { ComponentPublicInstance } from 'vue'
+import CodeMirror from 'codemirror'
+import { toast } from 'vue-sonner'
 import { altKey, altSign, ctrlKey, shiftKey, shiftSign } from '@/config'
 import { useDisplayStore, useStore } from '@/stores'
 import {
@@ -8,7 +10,6 @@ import {
   toBase64,
 } from '@/utils'
 import fileApi from '@/utils/file'
-import CodeMirror from 'codemirror'
 
 const store = useStore()
 const displayStore = useDisplayStore()
@@ -140,18 +141,17 @@ function uploaded(imageUrl: string) {
   toRaw(store.editor!).replaceSelection(`\n${markdownImage}\n`, cursor as any)
   toast.success(`图片上传成功`)
 }
-function uploadImage(file: File, cb?: { (url: any): void, (arg0: unknown): void } | undefined) {
+function uploadImage(file: File, cb?: { (url: any): void; (arg0: unknown): void } | undefined) {
   isImgLoading.value = true
 
   toBase64(file)
     .then(base64Content => fileApi.fileUpload(base64Content, file))
     .then((url) => {
-      if (cb) {
+      if (cb)
         cb(url)
-      }
-      else {
+
+      else
         uploaded(url)
-      }
     })
     .catch((err) => {
       toast.error(err.message)
@@ -169,13 +169,28 @@ watch(isDark, () => {
   toRaw(editor.value)?.setOption?.(`theme`, theme)
 })
 
+const codeMirrorWrapper = ref<ComponentPublicInstance<HTMLDivElement> | null>(null)
+const uploadImgDialogRef = ref<{ switchToTab: (tabName: string) => void } | null>(null)
+
+// 检查本地图床配置
+async function checkAndShowImageHostConfig() {
+  const isValid = await fileApi.checkLocalImageHostConfig()
+  if (!isValid) {
+    displayStore.toggleShowUploadImgDialog(true)
+    // 切换到本地配置标签页
+    nextTick(() => {
+      uploadImgDialogRef.value?.switchToTab(`local`)
+    })
+  }
+}
+
 // 初始化编辑器
 function initEditor() {
   const editorDom = document.querySelector<HTMLTextAreaElement>(`#editor`)!
 
-  if (!editorDom.value) {
+  if (!editorDom.value)
     editorDom.value = store.posts[store.currentPostIndex].content
-  }
+
   editor.value = CodeMirror.fromTextArea(editorDom, {
     mode: `text/x-markdown`,
     theme: isDark.value ? `darcula` : `xq-light`,
@@ -227,18 +242,18 @@ function initEditor() {
 
   // 粘贴上传图片并插入
   editor.value.on(`paste`, (_cm, e) => {
-    if (!(e.clipboardData && e.clipboardData.items) || isImgLoading.value) {
+    if (!(e.clipboardData && e.clipboardData.items) || isImgLoading.value)
       return
-    }
+
     for (let i = 0, len = e.clipboardData.items.length; i < len; ++i) {
       const item = e.clipboardData.items[i]
       if (item.kind === `file`) {
         // 校验图床参数
         const pasteFile = item.getAsFile()!
         const isValid = beforeUpload(pasteFile)
-        if (!isValid) {
+        if (!isValid)
           continue
-        }
+
         uploadImage(pasteFile)
       }
     }
@@ -252,22 +267,20 @@ function addFormat(cmd: string | number) {
   (editor.value as any).options.extraKeys[cmd](editor.value)
 }
 
-const codeMirrorWrapper = ref<ComponentPublicInstance<HTMLDivElement> | null>(null)
-
 // 转换 markdown 中的本地图片为线上图片
 // todo 处理事件覆盖
 function mdLocalToRemote() {
   const dom = codeMirrorWrapper.value!
 
   // 上传 md 中的图片
-  const uploadMdImg = async ({ md, list }: { md: { str: string, path: string, file: File }, list: { path: string, file: File }[] }) => {
+  const uploadMdImg = async ({ md, list }: { md: { str: string; path: string; file: File }; list: { path: string; file: File }[] }) => {
     const mdImgList = [
       ...(md.str.matchAll(/!\[(.*?)\]\((.*?)\)/g) || []),
     ].filter((item) => {
       return item // 获取所有相对地址的图片
     })
     const root = md.path.match(/.+?\//)![0]
-    const resList = await Promise.all<{ matchStr: string, url: string }>(
+    const resList = await Promise.all<{ matchStr: string; url: string }>(
       mdImgList.map((item) => {
         return new Promise((resolve) => {
           let [, , matchStr] = item
@@ -292,9 +305,9 @@ function mdLocalToRemote() {
   dom.ondrop = async (evt: any) => {
     evt.preventDefault()
     for (const item of evt.dataTransfer.items) {
-      item.getAsFileSystemHandle().then(async (handle: { kind: string, getFile: () => any }) => {
+      item.getAsFileSystemHandle().then(async (handle: { kind: string; getFile: () => any }) => {
         if (handle.kind === `directory`) {
-          const list = await showFileStructure(handle) as { path: string, file: File }[]
+          const list = await showFileStructure(handle) as { path: string; file: File }[]
           const md = await getMd({ list })
           uploadMdImg({ md, list })
         }
@@ -307,8 +320,8 @@ function mdLocalToRemote() {
   }
 
   // 从文件列表中查找一个 md 文件并解析
-  async function getMd({ list }: { list: { path: string, file: File }[] }) {
-    return new Promise<{ str: string, file: File, path: string }>((resolve) => {
+  async function getMd({ list }: { list: { path: string; file: File }[] }) {
+    return new Promise<{ str: string; file: File; path: string }>((resolve) => {
       const { path, file } = list.find(item => item.path.match(/\.md$/))!
       const reader = new FileReader()
       reader.readAsText(file!, `UTF-8`)
@@ -357,6 +370,7 @@ onMounted(() => {
   initEditor()
   onEditorRefresh()
   mdLocalToRemote()
+  checkAndShowImageHostConfig()
 })
 </script>
 
@@ -440,7 +454,7 @@ onMounted(() => {
         字数 {{ readingTime?.words }}， 阅读大约需 {{ Math.ceil(readingTime?.minutes ?? 0) }} 分钟
       </footer>
 
-      <UploadImgDialog @upload-image="uploadImage" />
+      <UploadImgDialog ref="uploadImgDialogRef" @upload-image="uploadImage" />
 
       <InsertFormDialog />
 

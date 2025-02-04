@@ -1,8 +1,3 @@
-import { giteeConfig, githubConfig } from '@/config'
-import fetch from '@/utils/fetch'
-import * as tokenTools from '@/utils/tokenTools'
-
-import { base64encode, safe64, utf16to8 } from '@/utils/tokenTools'
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import Buffer from 'buffer-from'
 import COS from 'cos-js-sdk-v5'
@@ -11,6 +6,18 @@ import * as Minio from 'minio'
 import * as qiniu from 'qiniu-js'
 import OSS from 'tiny-oss'
 import { v4 as uuidv4 } from 'uuid'
+import { toast } from 'vue-sonner'
+import { base64encode, safe64, utf16to8 } from '@/utils/tokenTools'
+import * as tokenTools from '@/utils/tokenTools'
+import fetch from '@/utils/fetch'
+import { giteeConfig, githubConfig } from '@/config'
+
+// 添加类型声明
+declare global {
+  interface Window {
+    showDirectoryPicker(options?: { mode?: `read` | `readwrite` }): Promise<FileSystemDirectoryHandle>
+  }
+}
 
 function getConfig(useDefault: boolean, platform: string) {
   if (useDefault) {
@@ -85,15 +92,15 @@ async function ghFileUpload(content: string, filename: string) {
   const res = await fetch<{ content: {
     download_url: string
   } }, {
+    content: {
+      download_url: string
+    }
+    data?: {
       content: {
         download_url: string
       }
-      data?: {
-        content: {
-          download_url: string
-        }
-      }
-    }>({
+    }
+  }>({
     url: url + dateFilename,
     method: `put`,
     headers: {
@@ -126,15 +133,15 @@ async function giteeUpload(content: any, filename: string) {
   const res = await fetch<{ content: {
     download_url: string
   } }, {
+    content: {
+      download_url: string
+    }
+    data: {
       content: {
         download_url: string
       }
-      data: {
-        content: {
-          download_url: string
-        }
-      }
-    }>({
+    }
+  }>({
     url,
     method: `POST`,
     data: {
@@ -275,16 +282,16 @@ async function minioFileUpload(content: string, filename: string) {
   }
   const p = Number(port || 0)
   const isCustomPort = p > 0 && p !== 80 && p !== 443
-  if (isCustomPort) {
+  if (isCustomPort)
     conf.port = p
-  }
+
   return new Promise<string>((resolve, reject) => {
     const minioClient = new Minio.Client(conf)
     try {
       minioClient.putObject(bucket, dateFilename, buffer, (e) => {
-        if (e) {
+        if (e)
           reject(e)
-        }
+
         const host = `${useSSL ? `https://` : `http://`}${endpoint}${
           isCustomPort ? `:${port}` : ``
         }`
@@ -313,9 +320,8 @@ async function getMpToken(appID: string, appsecret: string, proxyOrigin: string)
   const data = localStorage.getItem(`mpToken:${appID}`)
   if (data) {
     const token = JSON.parse(data)
-    if (token.expire && token.expire > new Date().getTime()) {
+    if (token.expire && token.expire > new Date().getTime())
       return token.access_token
-    }
   }
   const requestOptions = {
     method: `POST`,
@@ -326,9 +332,9 @@ async function getMpToken(appID: string, appsecret: string, proxyOrigin: string)
     },
   }
   let url = `https://api.weixin.qq.com/cgi-bin/stable_token`
-  if (proxyOrigin) {
+  if (proxyOrigin)
     url = `${proxyOrigin}/cgi-bin/stable_token`
-  }
+
   const res = await fetch<any, MpResponse>(url, requestOptions)
   if (res.access_token) {
     const tokenInfo = {
@@ -346,9 +352,8 @@ async function mpFileUpload(file: File) {
   )
 
   const access_token = await getMpToken(appID, appsecret, proxyOrigin)
-  if (!access_token) {
+  if (!access_token)
     throw new Error(`获取 access_token 失败`)
-  }
 
   const formdata = new FormData()
   formdata.append(`media`, file, file.name)
@@ -359,20 +364,17 @@ async function mpFileUpload(file: File) {
   }
 
   let url = `https://api.weixin.qq.com/cgi-bin/material/add_material?access_token=${access_token}&type=image`
-  if (proxyOrigin) {
+  if (proxyOrigin)
     url = `${proxyOrigin}/cgi-bin/material/add_material?access_token=${access_token}&type=image`
-  }
 
   const res = await fetch<any, { url: string }>(url, requestOptions)
 
-  if (!res.url) {
+  if (!res.url)
     throw new Error(`上传失败，未获取到URL`)
-  }
 
   let imageUrl = res.url
-  if (proxyOrigin && window.location.href.startsWith(`http`)) {
+  if (proxyOrigin && window.location.href.startsWith(`http`))
     imageUrl = `https://wsrv.nl?url=${encodeURIComponent(imageUrl)}`
-  }
 
   return imageUrl
 }
@@ -441,12 +443,207 @@ async function formCustomUpload(content: string, file: File) {
   })
 }
 
-function fileUpload(content: string, file: File) {
-  const imgHost = localStorage.getItem(`imgHost`)
-  if (!imgHost) {
-    localStorage.setItem(`imgHost`, `default`)
+// -----------------------------------------------------------------------
+// Local File Upload
+// -----------------------------------------------------------------------
+
+interface LocalConfig {
+  handle: FileSystemDirectoryHandle | null
+  path: string
+  imagePathTemplateInMd: string
+}
+
+let localConfig: LocalConfig = {
+  handle: null,
+  path: ``,
+  imagePathTemplateInMd: `/{name}.{ext}`,
+}
+
+// 初始化本地配置
+const savedConfig = localStorage.getItem(`localConfig`)
+if (savedConfig) {
+  const config = JSON.parse(savedConfig)
+  localConfig = {
+    ...localConfig,
+    path: config.path || ``,
+    imagePathTemplateInMd: config.imagePathTemplateInMd || `/{name}.{ext}`,
   }
+}
+
+function getLocalConfig() {
+  return localConfig
+}
+
+async function checkLocalImageHostConfig(): Promise<boolean> {
+  const imgHost = localStorage.getItem(`imgHost`)
+  const config = localStorage.getItem(`localConfig`)
+
+  // 如果不是本地图床，直接返回 true
+  if (imgHost !== `local`)
+    return true
+
+  // 如果是本地图床，但没有配置或 handle 无效
+  if (!config || !localConfig.handle)
+    return false
+
+  // 验证权限是否有效
+  return await verifyLocalDirectoryAccess()
+}
+
+async function requestLocalDirectory() {
+  try {
+    const handle = await window.showDirectoryPicker({
+      mode: `readwrite`,
+    })
+    localConfig.handle = handle
+    localConfig.path = handle.name
+
+    // 获取已有配置
+    const existingConfig = localStorage.getItem(`localConfig`)
+    const config = existingConfig ? JSON.parse(existingConfig) : {}
+
+    // 保存配置,保留 imagePathTemplateInMd
+    localStorage.setItem(`localConfig`, JSON.stringify({
+      ...config,
+      path: handle.name,
+      imagePathTemplateInMd: config.imagePathTemplateInMd || `/{name}.{ext}`,
+    }))
+
+    // 同步更新内存中的配置
+    localConfig.imagePathTemplateInMd = config.imagePathTemplateInMd || `/{name}.{ext}`
+
+    return true
+  }
+  catch (err) {
+    // 用户主动取消不提示错误
+    if (err instanceof Error && err.name === `AbortError`)
+      return false
+
+    console.error(`Failed to get directory permission:`, err)
+    toast(`获取目录权限失败`)
+    return false
+  }
+}
+
+function isLocalPath(path: string): boolean {
+  return /^(\.\/|\.\.\/|\/|[^:]+\/)/.test(path)
+}
+
+// 从路径中根据模板提取文件名
+function extractFilenameFromPath(path: string, template: string): string {
+  // 转义特殊字符,将模板转为正则
+  const pattern = template
+    .replace(/\//g, `\\/`) // 转义斜杠
+    .replace(/\./g, `\\.`) // 转义点号
+    .replace(`{name}`, `(?<name>.+?)`) // 捕获文件名
+    .replace(`{ext}`, `(?<ext>[^/]+)`) // 捕获扩展名
+
+  const regex = new RegExp(pattern)
+  const match = path.match(regex)
+
+  if (!match?.groups) {
+    // 如果无法匹配模板,则移除开头的 ./ ../ / 作为后备方案
+    return path.replace(/^(\.\/|\.\.\/|\/)+/, ``)
+  }
+
+  const { name, ext } = match.groups
+  return `${name}.${ext}`
+}
+
+// 获取文件内容并创建 URL
+async function getLocalImagePreview(path: string): Promise<string | null> {
+  if (!localConfig.handle)
+    return null
+
+  try {
+    const filename = extractFilenameFromPath(path, localConfig.imagePathTemplateInMd)
+    const fileHandle = await localConfig.handle.getFileHandle(filename)
+    const file = await fileHandle.getFile()
+    return URL.createObjectURL(file)
+  }
+  catch (err) {
+    console.error(`Failed to read local file:`, err)
+    return null
+  }
+}
+
+async function verifyLocalDirectoryAccess() {
+  const config = localStorage.getItem(`localConfig`)
+  if (!config)
+    return false
+
+  if (!localConfig.handle) {
+    toast(`需要授权本地存储目录访问权限`)
+    const hasPermission = await requestLocalDirectory()
+    if (!hasPermission)
+      return false
+  }
+
+  try {
+    // 尝试创建一个临时文件来验证权限
+    const testFileName = `.permission_test`
+    try {
+      const fileHandle = await localConfig.handle!.getFileHandle(testFileName, { create: true })
+      // 创建一个可写流并立即关闭它
+      const writable = await fileHandle.createWritable()
+      await writable.close()
+      // 删除测试文件
+      await localConfig.handle!.removeEntry(testFileName)
+      return true
+    }
+    catch {
+      throw new Error(`Permission denied`)
+    }
+  }
+  catch (err) {
+    console.error(`Directory permission verification failed:`, err)
+    toast(`本地存储目录访问权限已失效，请重新授权`)
+    localConfig.handle = null
+    // 让用户手动点击"选择目录"按钮重新授权
+    return false
+  }
+}
+
+async function localFileUpload(file: File) {
+  if (!localConfig.handle) {
+    toast(`需要选择本地存储目录`)
+    const hasPermission = await requestLocalDirectory()
+    if (!hasPermission)
+      throw new Error(`需要选择本地存储目录`)
+  }
+
+  try {
+    const filename = getDateFilename(file.name)
+    const fileExt = filename.split(`.`).pop() || ``
+    const baseName = filename.slice(0, -fileExt.length - 1)
+
+    // 直接存储文件
+    const fileHandle = await localConfig.handle!.getFileHandle(filename, { create: true })
+    const writable = await fileHandle.createWritable()
+    await writable.write(file)
+    await writable.close()
+
+    // 返回配置的图片路径格式
+    return localConfig.imagePathTemplateInMd
+      .replace(`{name}`, baseName)
+      .replace(`{ext}`, fileExt)
+  }
+  catch (err) {
+    console.error(`Failed to save file:`, err)
+    if (err instanceof Error && err.name === `NotAllowedError`) {
+      toast(`本地存储目录访问权限已失效，请点击"选择目录"按钮重新授权`)
+      localConfig.handle = null
+    }
+    throw new Error(`保存文件失败`)
+  }
+}
+
+function fileUpload(content: string, file: File) {
+  const imgHost = localStorage.getItem(`imgHost`) || `default`
+
   switch (imgHost) {
+    case `local`:
+      return localFileUpload(file)
     case `aliOSS`:
       return aliOSSFileUpload(file)
     case `minio`:
@@ -473,6 +670,13 @@ function fileUpload(content: string, file: File) {
   }
 }
 
+// 统一在一处导出所有内容
 export default {
   fileUpload,
+  requestLocalDirectory,
+  getLocalImagePreview,
+  verifyLocalDirectoryAccess,
+  getLocalConfig,
+  checkLocalImageHostConfig,
+  isLocalPath,
 }

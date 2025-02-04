@@ -1,12 +1,14 @@
 import type { ReadTimeResults } from 'reading-time'
+import { marked } from 'marked'
+import { nextTick } from 'vue'
+import CodeMirror from 'codemirror'
 import DEFAULT_CONTENT from '@/assets/example/markdown.md?raw'
 import DEFAULT_CSS_CONTENT from '@/assets/example/theme-css.txt?raw'
 import { altKey, codeBlockThemeOptions, colorOptions, fontFamilyOptions, fontSizeOptions, legendOptions, shiftKey, themeMap, themeOptions } from '@/config'
 import { addPrefix, css2json, customCssWithTemplate, customizeTheme, downloadMD, exportHTML, formatDoc } from '@/utils'
+import { processLocalImages } from '@/utils/markdown'
 
 import { initRenderer } from '@/utils/renderer'
-import CodeMirror from 'codemirror'
-import { marked } from 'marked'
 
 export const useStore = defineStore(`store`, () => {
   // 是否开启深色模式
@@ -228,6 +230,11 @@ export const useStore = defineStore(`store`, () => {
     `
 
     output.value = renderer.createContainer(outputTemp)
+
+    // 处理本地图片
+    nextTick(() => {
+      processLocalImages()
+    })
   }
 
   // 更新 CSS
@@ -267,9 +274,8 @@ export const useStore = defineStore(`store`, () => {
 
     // 自动提示
     cssEditor.value.on(`keyup`, (cm, e) => {
-      if ((e.keyCode >= 65 && e.keyCode <= 90) || e.keyCode === 189) {
+      if ((e.keyCode >= 65 && e.keyCode <= 90) || e.keyCode === 189)
         (cm as any).showHint(e)
-      }
     })
 
     // 实时保存
@@ -408,9 +414,8 @@ export const useStore = defineStore(`store`, () => {
     input.accept = `.md`
     input.onchange = () => {
       const file = input.files![0]
-      if (!file) {
+      if (!file)
         return
-      }
 
       const reader = new FileReader()
       reader.readAsText(file)

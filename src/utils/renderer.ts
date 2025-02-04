@@ -1,4 +1,3 @@
-import type { ExtendedProperties, IOpts, ThemeStyles } from '@/types'
 import type { PropertiesHyphen } from 'csstype'
 import type { Renderer, RendererObject, Tokens } from 'marked'
 import type { ReadTimeResults } from 'reading-time'
@@ -10,10 +9,12 @@ import { marked } from 'marked'
 import mermaid from 'mermaid'
 import readingTime from 'reading-time'
 
-import { getStyleString } from '.'
 import markedAlert from './MDAlert'
 
 import { MDKatex } from './MDKatex'
+import fileUtils from './file'
+import { getStyleString } from '.'
+import type { ExtendedProperties, IOpts, ThemeStyles } from '@/types'
 
 marked.setOptions({
   breaks: true,
@@ -75,9 +76,9 @@ function buildAddition(): string {
 
 function getStyles(styleMapping: ThemeStyles, tokenName: string, addition: string = ``): string {
   const dict = styleMapping[tokenName as keyof ThemeStyles]
-  if (!dict) {
+  if (!dict)
     return ``
-  }
+
   const styles = getStyleString(dict)
   return `style="${styles}${addition}"`
 }
@@ -95,12 +96,11 @@ function buildFootnoteArray(footnotes: [number, string, string][]): string {
 function transform(legend: string, text: string | null, title: string | null): string {
   const options = legend.split(`-`)
   for (const option of options) {
-    if (option === `alt` && text) {
+    if (option === `alt` && text)
       return text
-    }
-    if (option === `title` && title) {
+
+    if (option === `title` && title)
       return title
-    }
   }
   return ``
 }
@@ -178,12 +178,12 @@ export function initRenderer(opts: IOpts) {
   }
 
   function buildReadingTime(readingTime: ReadTimeResults): string {
-    if (!opts.countStatus) {
+    if (!opts.countStatus)
       return ``
-    }
-    if (!readingTime.words) {
+
+    if (!readingTime.words)
       return ``
-    }
+
     return `
       <blockquote ${styles(`blockquote`)}>
         <p ${styles(`blockquote_p`)}>字数 ${readingTime?.words}，阅读大约需 ${Math.ceil(readingTime?.minutes)} 分钟</p>
@@ -192,9 +192,8 @@ export function initRenderer(opts: IOpts) {
   }
 
   const buildFootnotes = () => {
-    if (!footnotes.length) {
+    if (!footnotes.length)
       return ``
-    }
 
     return (
       styledContent(`h4`, `引用链接`)
@@ -213,9 +212,9 @@ export function initRenderer(opts: IOpts) {
       const text = this.parser.parseInline(tokens)
       const isFigureImage = text.includes(`<figure`) && text.includes(`<img`)
       const isEmpty = text.trim() === ``
-      if (isFigureImage || isEmpty) {
+      if (isFigureImage || isEmpty)
         return text
-      }
+
       return styledContent(`p`, text)
     },
 
@@ -274,17 +273,20 @@ export function initRenderer(opts: IOpts) {
       const subText = styledContent(`figcaption`, transform(opts.legend!, text, title))
       const figureStyles = styles(`figure`)
       const imgStyles = styles(`image`)
-      return `<figure ${figureStyles}><img ${imgStyles} src="${href}" title="${title}" alt="${text}"/>${subText}</figure>`
+      const img = fileUtils.isLocalPath(href)
+        ? `<img data-local-src="${href}" src="" alt="${text || ``}" ${title ? `title="${title}"` : ``} ${imgStyles}/>`
+        : `<img src="${href}" alt="${text || ``}" ${title ? `title="${title}"` : ``} ${imgStyles}/>`
+      return `<figure ${figureStyles}>${img}${subText}</figure>`
     },
 
     link({ href, title, text, tokens }: Tokens.Link): string {
       const parsedText = this.parser.parseInline(tokens)
-      if (href.startsWith(`https://mp.weixin.qq.com`)) {
+      if (href.startsWith(`https://mp.weixin.qq.com`))
         return `<a href="${href}" title="${title || text}" ${styles(`wx_link`)}>${parsedText}</a>`
-      }
-      if (href === text) {
+
+      if (href === text)
         return parsedText
-      }
+
       if (opts.citeStatus) {
         const ref = addFootnote(title || text, href)
         return `<span ${styles(`link`)}>${parsedText}<sup>[${ref}]</sup></span>`

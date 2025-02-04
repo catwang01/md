@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { useDisplayStore } from '@/stores'
-import { checkImage } from '@/utils'
 import { toTypedSchema } from '@vee-validate/yup'
 import { UploadCloud } from 'lucide-vue-next'
 import { Field, Form } from 'vee-validate'
 import * as yup from 'yup'
+import fileUtils from '@/utils/file'
+import { checkImage } from '@/utils'
+import { useDisplayStore } from '@/stores'
+import { processLocalImages } from '@/utils/markdown'
 
 const emit = defineEmits([`uploadImage`])
 
@@ -193,6 +195,10 @@ const options = [
     label: `默认`,
   },
   {
+    value: `local`,
+    label: `本地`,
+  },
+  {
     value: `github`,
     label: `GitHub`,
   },
@@ -227,13 +233,42 @@ const options = [
 ]
 
 const imgHost = ref(`default`)
-
 const activeName = ref(`upload`)
+const localPath = ref(``)
+const localImagePath = ref(`/{name}.{ext}`)
+const isLocalAuthorized = ref(false)
 
-onBeforeMount(() => {
-  if (localStorage.getItem(`imgHost`)) {
-    imgHost.value = localStorage.getItem(`imgHost`)!
+function switchToTab(tabName: string) {
+  activeName.value = tabName
+}
+
+// 暴露方法给父组件
+defineExpose({
+  switchToTab,
+})
+
+// 检查本地授权状态
+async function checkLocalAuth() {
+  const config = localStorage.getItem(`localConfig`)
+  if (!config) {
+    isLocalAuthorized.value = false
+    return
   }
+  isLocalAuthorized.value = await fileUtils.verifyLocalDirectoryAccess()
+}
+
+// 初始化本地配置
+onBeforeMount(async () => {
+  if (localStorage.getItem(`imgHost`))
+    imgHost.value = localStorage.getItem(`imgHost`)!
+
+  const config = localStorage.getItem(`localConfig`)
+  if (config) {
+    const parsedConfig = JSON.parse(config)
+    localPath.value = parsedConfig.path
+    localImagePath.value = parsedConfig.imagePathTemplateInMd || `/{name}.{ext}`
+  }
+  await checkLocalAuth()
 })
 
 function changeImgHost() {
@@ -248,11 +283,22 @@ function beforeImageUpload(file: File) {
     toast.error(checkResult.msg || ``)
     return false
   }
+
   // check image host
-  let imgHost = localStorage.getItem(`imgHost`)
-  imgHost = imgHost || `default`
+  const imgHost = localStorage.getItem(`imgHost`) || `default`
   localStorage.setItem(`imgHost`, imgHost)
 
+  // 检查本地图床配置
+  if (imgHost === `local`) {
+    const config = localStorage.getItem(`localConfig`)
+    if (!config) {
+      toast.error(`请先选择本地存储目录`)
+      return false
+    }
+    return true
+  }
+
+  // 检查其他图床配置
   const config = localStorage.getItem(`${imgHost}Config`)
   const isValidHost = imgHost === `default` || config
   if (!isValidHost) {
@@ -269,9 +315,8 @@ const { open, onChange } = useFileDialog({
 })
 
 onChange((files) => {
-  if (files == null) {
+  if (files == null)
     return
-  }
 
   const file = files[0]
 
@@ -283,6 +328,33 @@ function onDrop(e: DragEvent) {
   e.stopPropagation()
   const file = Array.from(e.dataTransfer!.files)[0]
   beforeImageUpload(file) && emit(`uploadImage`, file)
+}
+
+async function handleSelectDirectory() {
+  const success = await fileUtils.requestLocalDirectory()
+  if (success) {
+    const config = localStorage.getItem(`localConfig`)
+    if (config) {
+      const parsedConfig = JSON.parse(config)
+      localPath.value = parsedConfig.path
+      localImagePath.value = parsedConfig.imagePathTemplateInMd || `/{name}.{ext}`
+    }
+    toast.success(`目录选择成功`)
+    await checkLocalAuth()
+    processLocalImages()
+  }
+}
+
+function handleImagePathChange() {
+  const config = localStorage.getItem(`localConfig`)
+  if (config) {
+    const parsedConfig = JSON.parse(config)
+    localStorage.setItem(`localConfig`, JSON.stringify({
+      ...parsedConfig,
+      imagePathTemplateInMd: localImagePath.value,
+    }))
+    toast.success(`保存配置成功`)
+  }
 }
 </script>
 
@@ -339,6 +411,55 @@ function onDrop(e: DragEvent) {
               <strong>点击上传</strong>
             </p>
           </div>
+        </TabsContent>
+
+        <TabsContent value="local">
+          <Form>
+            <FormItem label="本地存储路径" required>
+              <div class="flex items-center gap-2">
+                <Input
+                  v-model="localPath"
+                  readonly
+                  placeholder="请选择本地存储目录"
+                />
+                <Button type="button" @click="handleSelectDirectory">
+                  选择目录
+                </Button>
+              </div>
+              <div class="mt-1 text-sm" :class="isLocalAuthorized ? 'text-green-500' : 'text-red-500'">
+                {{ isLocalAuthorized ? '✓ 已授权访问' : '✗ 未授权访问' }}
+              </div>
+            </FormItem>
+
+            <FormItem label="图片路径格式">
+              <Input
+                v-model="localImagePath"
+                placeholder="如：/{name}.{ext} 或 /images/{name}.{ext}"
+              />
+              <span class="text-sm text-gray-500">
+                支持的变量：{name} - 文件名，{ext} - 文件扩展名
+              </span>
+            </FormItem>
+
+            <FormItem>
+              <Button type="button" @click="handleImagePathChange">
+                保存配置
+              </Button>
+            </FormItem>
+
+            <FormItem>
+              <Button
+                type="button"
+                variant="link"
+                class="p-0"
+                as="a"
+                href="https://developer.mozilla.org/en-US/docs/Web/API/File_System_Access_API"
+                target="_blank"
+              >
+                了解更多关于文件系统访问
+              </Button>
+            </FormItem>
+          </Form>
         </TabsContent>
 
         <TabsContent value="github">
