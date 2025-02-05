@@ -470,10 +470,6 @@ if (savedConfig) {
   }
 }
 
-function getLocalConfig() {
-  return localConfig
-}
-
 async function checkLocalImageHostConfig(): Promise<boolean> {
   const imgHost = localStorage.getItem(`imgHost`)
   const config = localStorage.getItem(`localConfig`)
