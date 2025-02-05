@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ChevronDownIcon, Moon, PanelLeftClose, PanelLeftOpen, Settings, Sun } from 'lucide-vue-next'
 import { Toaster } from '@/components/ui/sonner'
 import {
   altSign,
@@ -8,7 +9,6 @@ import {
 } from '@/config'
 import { useStore } from '@/stores'
 import { addPrefix, processClipboardContent } from '@/utils'
-import { ChevronDownIcon, Moon, PanelLeftClose, PanelLeftOpen, Settings, Sun } from 'lucide-vue-next'
 
 const emit = defineEmits([`addFormat`, `formatContent`, `startCopy`, `endCopy`])
 
@@ -51,7 +51,7 @@ const { isDark, isCiteStatus, isCountStatus, output, primaryColor, isOpenPostSli
 
 const { toggleDark, editorRefresh, citeStatusChanged, countStatusChanged } = store
 
-const copyMode = useStorage(addPrefix(`copyMode`), `txt`)
+const copyMode = useStorage(addPrefix(`copyMode`), `mp`)
 const source = ref(``)
 const { copy: copyContent } = useClipboard({ source })
 
@@ -61,17 +61,16 @@ function copy() {
   setTimeout(() => {
     // 如果是深色模式，复制之前需要先切换到白天模式
     const isBeforeDark = isDark.value
-    if (isBeforeDark) {
+    if (isBeforeDark)
       toggleDark()
-    }
 
     nextTick(async () => {
-      processClipboardContent(primaryColor.value)
+      await processClipboardContent(primaryColor.value, copyMode.value)
       const clipboardDiv = document.getElementById(`output`)!
       clipboardDiv.focus()
       window.getSelection()!.removeAllRanges()
       const temp = clipboardDiv.innerHTML
-      if (copyMode.value === `txt`) {
+      if (copyMode.value === `mp`) {
         const range = document.createRange()
         range.setStartBefore(clipboardDiv.firstChild!)
         range.setEndAfter(clipboardDiv.lastChild!)
@@ -80,12 +79,11 @@ function copy() {
         window.getSelection()!.removeAllRanges()
       }
       clipboardDiv.innerHTML = output.value
-      if (isBeforeDark) {
+      if (isBeforeDark)
         nextTick(() => toggleDark())
-      }
-      if (copyMode.value === `html`) {
+
+      if (copyMode.value === `html`)
         await copyContent(temp)
-      }
 
       // 输出提示
       toast.success(
@@ -177,7 +175,7 @@ function copy() {
             class="w-[200px]"
           >
             <DropdownMenuRadioGroup v-model="copyMode">
-              <DropdownMenuRadioItem value="txt">
+              <DropdownMenuRadioItem value="mp">
                 公众号格式
               </DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="html">

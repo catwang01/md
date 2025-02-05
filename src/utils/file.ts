@@ -470,6 +470,14 @@ if (savedConfig) {
   }
 }
 
+export function getImageHost() {
+  return localStorage.getItem(`imgHost`) || `default`
+}
+
+export function getLocalConfig() {
+  return localConfig
+}
+
 async function checkLocalImageHostConfig(): Promise<boolean> {
   const imgHost = localStorage.getItem(`imgHost`)
   const config = localStorage.getItem(`localConfig`)
@@ -634,8 +642,9 @@ async function localFileUpload(file: File) {
   }
 }
 
-function fileUpload(content: string, file: File) {
-  const imgHost = localStorage.getItem(`imgHost`) || `default`
+export function fileUpload(content: string, file: File, imgHost: string | null = null) {
+  if (!imgHost)
+    imgHost = getImageHost()
 
   switch (imgHost) {
     case `local`:
@@ -672,7 +681,8 @@ export default {
   requestLocalDirectory,
   getLocalImagePreview,
   verifyLocalDirectoryAccess,
-  getLocalConfig,
   checkLocalImageHostConfig,
   isLocalPath,
+  getLocalConfig,
+  getImageHost,
 }

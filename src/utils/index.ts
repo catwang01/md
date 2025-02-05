@@ -1,13 +1,13 @@
-import type { Block, ExtendedProperties, Inline, Theme } from '@/types'
-
 import type { PropertiesHyphen } from 'csstype'
-import { prefix } from '@/config'
 import juice from 'juice'
 import * as prettierPluginBabel from 'prettier/plugins/babel'
 import * as prettierPluginEstree from 'prettier/plugins/estree'
 import * as prettierPluginMarkdown from 'prettier/plugins/markdown'
 import * as prettierPluginCss from 'prettier/plugins/postcss'
 import { format } from 'prettier/standalone'
+import { fileUpload, getImageHost, getLocalConfig } from './file'
+import { prefix } from '@/config'
+import type { Block, ExtendedProperties, Inline, Theme } from '@/types'
 
 export function addPrefix(str: string) {
   return `${prefix}__${str}`
@@ -25,9 +25,9 @@ export function customizeTheme(theme: Theme, options: {
       newTheme.block[`h${i}`][`font-size`] = `${fontSize * Number.parseFloat(v)}px`
     }
   }
-  if (color) {
+  if (color)
     newTheme.base[`--md-primary-color`] = color
-  }
+
   return newTheme as Theme
 }
 
@@ -36,9 +36,8 @@ export function customCssWithTemplate(jsonString: Partial<Record<Block | Inline,
 
   const mergeProperties = <T extends Block | Inline = Block>(target: Record<T, PropertiesHyphen>, source: Partial<Record<Block | Inline | string, PropertiesHyphen>>, keys: T[]) => {
     keys.forEach((key) => {
-      if (source[key]) {
+      if (source[key])
         target[key] = Object.assign(target[key] || {}, source[key])
-      }
     })
   }
 
@@ -234,9 +233,8 @@ export function exportHTML(primaryColor: string) {
       case isSpan(element):
         element.setAttribute(`style`, getElementStyles(element))
     }
-    if (element.children.length) {
+    if (element.children.length)
       Array.from(element.children).forEach(child => setStyles(child))
-    }
 
     // 判断是否是包裹代码块的 pre 元素
     function isPre(element: Element) {
@@ -248,9 +246,9 @@ export function exportHTML(primaryColor: string) {
 
     // 判断是否是包裹代码块的 code 元素
     function isCode(element: Element | null) {
-      if (element == null) {
+      if (element == null)
         return false
-      }
+
       return element.tagName === `CODE`
     }
 
@@ -274,7 +272,7 @@ export function exportHTML(primaryColor: string) {
  * @param {number} options.cols - 列数
  * @returns {string} 生成的 Markdown 表格
  */
-export function createTable({ data, rows, cols }: { data: { [k: string]: string }, rows: number, cols: number }) {
+export function createTable({ data, rows, cols }: { data: { [k: string]: string }; rows: number; cols: number }) {
   let table = ``
   for (let i = 0; i < rows + 2; ++i) {
     table += `| `
@@ -379,7 +377,63 @@ export function modifyHtmlStructure(htmlString: string): string {
   return tempDiv.innerHTML
 }
 
-export function processClipboardContent(primaryColor: string) {
+async function getImageMapping(handle: FileSystemDirectoryHandle) {
+  try {
+    const fileHandle = await handle.getFileHandle(`imageMapping.json`, { create: true })
+    const file = await fileHandle.getFile()
+    const text = await file.text()
+    return JSON.parse(text)
+  }
+  catch {
+    return {}
+  }
+}
+
+async function saveImageMapping(handle: FileSystemDirectoryHandle, mapping: Record<string, string>) {
+  const fileHandle = await handle.getFileHandle(`imageMapping.json`, { create: true })
+  const writable = await fileHandle.createWritable()
+  await writable.write(JSON.stringify(mapping, null, 2))
+  await writable.close()
+}
+
+async function uploadImagesFromLocal(copyMode: string) {
+  const clipboardDiv = document.getElementById(`output`)!
+  const images = clipboardDiv.getElementsByTagName(`img`)
+  console.log(`Finding ${images.length} images in clipboard...`)
+
+  const handle = getLocalConfig().handle
+  if (!handle) {
+    console.error(`Local config is not initialized`)
+    return
+  }
+  const imageMapping = await getImageMapping(handle)
+
+  for (const image of Array.from(images)) {
+    const src = image.getAttribute(`src`)!
+    if (src.startsWith(`blob:`)) {
+      const response = await fetch(src)
+      const blob = await response.blob()
+      const arrayBuffer = await blob.arrayBuffer()
+      const hash = await crypto.subtle.digest(`SHA-256`, arrayBuffer)
+      const hashHex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, `0`)).join(``)
+
+      if (imageMapping[hashHex]) {
+        console.log(`Found the image url mapping ${src}:${imageMapping[hashHex]} in config file`)
+        image.setAttribute(`src`, imageMapping[hashHex])
+      }
+      else {
+        const file = new File([blob], `image.jpg`, { type: `image/jpeg` })
+        const url = await fileUpload(null, file, copyMode)
+        image.setAttribute(`src`, url)
+        console.log(`Uploaded image ${src} to ${url}`)
+        imageMapping[hashHex] = url
+        await saveImageMapping(handle, imageMapping)
+      }
+    }
+  }
+}
+
+export async function processClipboardContent(primaryColor: string, copyMode: string) {
   const clipboardDiv = document.getElementById(`output`)!
 
   // 先合并 CSS 和修改 HTML 结构
@@ -396,6 +450,9 @@ export function processClipboardContent(primaryColor: string) {
       /<span class="nodeLabel"([^>]*)><p[^>]*>(.*?)<\/p><\/span>/g,
       `<span class="nodeLabel"$1>$2</span>`,
     )
+
+  if (getImageHost() === `local`)
+    await uploadImagesFromLocal(copyMode)
 
   // 处理图片大小
   solveWeChatImage()
