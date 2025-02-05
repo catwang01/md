@@ -140,7 +140,8 @@ function minioOSSSubmit(formValues: any) {
 }
 
 // 公众号
-const isWebsite = ref(window.location.href.startsWith(`http`))
+// const isWebsite = ref(window.location.href.startsWith(`http`))
+const isWebsite = ref(false)
 
 const mpSchema = toTypedSchema(yup.object({
   proxyOrigin: isWebsite.value ? yup.string().required(`代理域名不能为空`) : yup.string().optional(),
