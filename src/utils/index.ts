@@ -417,17 +417,24 @@ async function uploadImagesFromLocal(copyMode: string) {
       const hash = await crypto.subtle.digest(`SHA-256`, arrayBuffer)
       const hashHex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, `0`)).join(``)
 
+      let url
       if (imageMapping[hashHex]) {
         console.log(`Found the image url mapping ${src}:${imageMapping[hashHex]} in config file`)
-        image.setAttribute(`src`, imageMapping[hashHex])
+        url = imageMapping[hashHex]
       }
       else {
         const file = new File([blob], `image.jpg`, { type: `image/jpeg` })
-        const url = await fileUpload(null, file, copyMode)
+        url = await fileUpload(null, file, copyMode)
         image.setAttribute(`src`, url)
         console.log(`Uploaded image ${src} to ${url}`)
         imageMapping[hashHex] = url
         await saveImageMapping(handle, imageMapping)
+      }
+      // remove wsrv.nl wrapping because wechat will not accept it
+      if (copyMode === `mp`) {
+        // parse the query parameter
+        const query = new URLSearchParams(url.split(`?`)[1])
+        image.setAttribute(`src`, query.get(`url`)!)
       }
     }
   }

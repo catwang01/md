@@ -86,11 +86,17 @@ function copy() {
         await copyContent(temp)
 
       // 输出提示
-      toast.success(
-        copyMode.value === `html`
-          ? `已复制 HTML 源码，请进行下一步操作。`
-          : `已复制渲染后的内容到剪贴板，可直接到公众号后台粘贴。`,
-      )
+      switch (copyMode.value) {
+        case `html`:
+          toast.success(`已复制 HTML 源码，请进行下一步操作。`)
+          break
+        case `mp`:
+          toast.success(`已复制渲染后的内容到剪贴板，可直接到公众号后台粘贴。`)
+          break
+        default:
+          toast.error(`Not implemented`)
+          break
+      }
 
       editorRefresh()
       emit(`endCopy`)
